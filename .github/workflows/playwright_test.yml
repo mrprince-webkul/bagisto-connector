@@ -1,0 +1,199 @@
+name: Playwright Tests
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: 1
+
+jobs:
+  playwright_tests:
+    name: Playwright E2E | Shard ${{ matrix.shard-index }}/${{ matrix.shard-total }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [1, 2, 3, 4]
+        shard-total: [4]
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: unopim
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=3
+          --tmpfs /var/lib/mysql:rw,noexec,nosuid,size=600m
+          --tmpfs /tmp:rw,noexec,nosuid,size=100m
+
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_INVALID_KEY: ${{ secrets.GROQ_INVALID_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # The suite logs in with these, so a run that cannot read the secrets must
+      # still fall back to the installer defaults — an empty password fails every
+      # session-backed spec instead of just the ones that need a real account.
+      UNOPIM_URL: ${{ secrets.UNOPIM_URL || 'http://127.0.0.1:8000' }}
+      ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME || 'admin@example.com' }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'admin123' }}
+      INVALID_ADMIN_EMAIL: ${{ secrets.INVALID_ADMIN_EMAIL || 'not-an-admin@example.com' }}
+      INVALID_ADMIN_PASSWORD: ${{ secrets.INVALID_ADMIN_PASSWORD || 'wrong-password' }}
+      INSTALLER_ADMIN_EMAIL: ${{ secrets.ADMIN_USERNAME || 'admin@example.com' }}
+      INSTALLER_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'admin123' }}
+      # Allow the webhook SSRF guard (SafeWebhookUrl) to accept 127.0.0.1 so the
+      # webhook-delivery E2E can use a local catcher server. Loopback only;
+      # private/link-local/reserved ranges stay blocked.
+      WEBHOOK_ALLOW_LOOPBACK: 'true'
+
+    steps:
+      - name: Checkout Bagisto
+        uses: actions/checkout@v5
+        with:
+          path: bagisto-package
+
+      - name: Checkout UnoPim
+        uses: actions/checkout@v5
+        with:
+          repository: unopim/unopim
+          path: unopim
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl, fileinfo, gd, intl, mbstring, openssl, pdo, pdo_mysql, tokenizer, zip
+          ini-values: error_reporting=E_ALL
+          tools: composer:v2
+          coverage: none
+
+      - name: Symlink Bagisto into UnoPim packages
+        run: |
+          mkdir -p unopim/packages/Webkul/Bagisto
+          cp -r bagisto-package/src unopim/packages/Webkul/Bagisto/src
+          cp bagisto-package/composer.json unopim/packages/Webkul/Bagisto/composer.json
+          if [ -d bagisto-package/publishable ]; then
+            cp -r bagisto-package/publishable unopim/packages/Webkul/Bagisto/publishable
+          fi
+          cp bagisto-package/package.json unopim/packages/Webkul/Bagisto/package.json
+          cp bagisto-package/vite.config.js unopim/packages/Webkul/Bagisto/vite.config.js
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            unopim/vendor
+            ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-bagisto-${{ hashFiles('unopim/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-bagisto-
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v5
+        with:
+          path: unopim/tests/e2e-pw/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('unopim/tests/e2e-pw/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-npm-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('unopim/tests/e2e-pw/package-lock.json') }}
+
+      - name: Install npm & Playwright browsers
+        run: |
+          cd unopim/tests/e2e-pw
+          npm install --no-progress --prefer-offline
+          npx playwright install --with-deps chromium
+
+      - name: Install Composer dependencies
+        working-directory: unopim
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader --no-progress
+
+      - name: Register Bagisto as a path repository and require it
+        working-directory: unopim
+        run: |
+          composer config repositories.bagisto '{"type":"path","url":"packages/Webkul/Bagisto","options":{"symlink":true}}' --json
+          composer require unopim/bagisto-connector:"*@dev" --no-interaction --no-progress --prefer-dist
+
+      - name: Setting Environment
+        working-directory: unopim
+        run: |
+          cp .env.example .env
+          sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
+          sed -i "s|^\(APP_DEBUG=\s*\).*$|\1false|" .env
+          sed -i "s|^\(APP_URL=\s*\).*$|\1http://127.0.0.1:8000|" .env
+          sed -i "s|^\(DB_HOST=\s*\).*$|\1127.0.0.1|" .env
+          sed -i "s|^\(DB_PORT=\s*\).*$|\13306|" .env
+          sed -i "s|^\(DB_DATABASE=\s*\).*$|\1unopim|" .env
+          sed -i "s|^\(DB_USERNAME=\s*\).*$|\1root|" .env
+          sed -i "s|^\(DB_PASSWORD=\s*\).*$|\1root|" .env
+          # The suite runs as one admin from one address, so the production
+          # throttles read as self-inflicted 429s. Matches unopim's own E2E job;
+          # the rate-limit security spec still asserts against these values.
+          echo "REST_API_RATE_LIMIT=100000" >> .env
+          echo "ADMIN_LOGIN_RATE_LIMIT=20" >> .env
+          echo "OAUTH_TOKEN_RATE_LIMIT=100000" >> .env
+          echo "WEBHOOK_ALLOW_LOOPBACK=true" >> .env
+
+      - name: Running UnoPim Installer & Start Server
+        working-directory: unopim
+        run: |
+          php artisan unopim:install --skip-env-check --skip-admin-creation --with-demo-data
+          # Guarantee the admin login matches login.js, no matter how the seeder
+          # resolved INSTALLER_ADMIN_* in this environment.
+          php artisan tinker --execute="DB::table('admins')->where('id',1)->update(['email'=>getenv('ADMIN_USERNAME')?:'admin@example.com','password'=>bcrypt(getenv('ADMIN_PASSWORD')?:'admin123')]);"
+          php artisan bagisto-package:install --no-interaction
+          php artisan unopim:passport:keys --no-interaction || true
+          find packages/Webkul/AdminApi/src/Secrets/Oauth storage/app/private/oauth \
+            -name 'oauth-*.key' -exec chmod 0600 {} + 2>/dev/null || true
+          # Fixtures the core suite reads but never creates: the passport preset,
+          # the discard QA records and the DPP E2E attribute family.
+          php artisan unopim:passport:install-preset
+          php artisan db:seed --class=DiscardQaFixtureSeeder
+          php artisan tinker tests/e2e-pw/scripts/seed-dpp-e2e.php
+          npm install --no-progress
+          npm run build
+          php artisan serve --host=0.0.0.0 --port=8000 > /tmp/server.log 2>&1 &
+          php artisan queue:work --queue=webhooks,default,system,completeness,publication > /tmp/queue.log 2>&1 &
+          echo "Waiting for server..."
+          timeout 30 bash -c 'until curl -s http://127.0.0.1:8000 > /dev/null; do sleep 1; done' || (cat /tmp/server.log && exit 1)
+
+      - name: Run Playwright tests
+        env:
+          PASSPORT_E2E_LOCAL: '1'
+        run: |
+          cd unopim/tests/e2e-pw
+          npx playwright test --reporter=list,html --shard=${{ matrix.shard-index }}/${{ matrix.shard-total }}
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report-shard-${{ matrix.shard-index }}-${{ github.run_id }}
+          path: |
+            unopim/tests/e2e-pw/playwright-report
+            unopim/tests/e2e-pw/test-results
+            unopim/storage/logs/laravel.log
+          retention-days: 1

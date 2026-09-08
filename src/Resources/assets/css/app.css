@@ -1,0 +1,14 @@
+@font-face { 
+    font-family: "unopim-bagisto"; 
+    src: url("../fonts/unopim-bagisto.woff") format("woff"); 
+    font-weight: normal; 
+    font-style: normal; 
+    font-display: block; 
+  }
+  
+.icon-bagisto {
+    font-family: "unopim-bagisto" !important;
+}
+.icon-bagisto:before {
+    content: "\e900";
+}

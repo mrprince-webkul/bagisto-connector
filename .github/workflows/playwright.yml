@@ -1,0 +1,136 @@
+name: Bagisto Connector Playwright Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Playwright End-to-end UI Test Cases
+    runs-on: ${{ matrix.operating-systems }}
+
+    strategy:
+      matrix:
+        operating-systems: [ubuntu-latest]
+        php-versions: ['8.4']
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: unopim
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      INSTALLER_ADMIN_EMAIL: admin@example.com
+      INSTALLER_ADMIN_PASSWORD: admin123
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: bagisto-connector
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-versions }}
+          extensions: curl, fileinfo, gd, intl, mbstring, openssl, pdo, pdo_mysql, tokenizer, zip
+          ini-values: error_reporting=E_ALL
+          tools: composer
+
+      - name: Wait for MySQL to be ready
+        run: |
+          until mysqladmin ping -h 127.0.0.1 -u root -proot --silent; do
+            echo "Waiting for MySQL to be ready..."
+            sleep 2
+          done
+
+      - name: Install UnoPIM
+        run: |
+          git clone --branch master --single-branch https://github.com/unopim/unopim.git
+          cd unopim
+          composer install --no-interaction --prefer-dist
+          cp .env.example .env
+          sed -i "s|^APP_ENV=.*|APP_ENV=testing|" .env
+          sed -i "s|^APP_DEBUG=.*|APP_DEBUG=false|" .env
+          sed -i "s|^DB_HOST=.*|DB_HOST=127.0.0.1|" .env
+          sed -i "s|^DB_PORT=.*|DB_PORT=3306|" .env
+          sed -i "s|^DB_DATABASE=.*|DB_DATABASE=unopim|" .env
+          sed -i "s|^DB_USERNAME=.*|DB_USERNAME=root|" .env
+          sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=root|" .env
+          sed -i "s|^APP_URL=.*|APP_URL=http://127.0.0.1:8000|" .env
+          # Pin the seeded admin credentials so they match the Playwright login.
+          # UnoPim master generates a RANDOM admin password unless this is set,
+          # which makes every authenticated test fail at login.
+          sed -i "s|^INSTALLER_ADMIN_EMAIL=.*|INSTALLER_ADMIN_EMAIL=admin@example.com|" .env
+          sed -i "s|^INSTALLER_ADMIN_PASSWORD=.*|INSTALLER_ADMIN_PASSWORD=admin123|" .env
+          php artisan unopim:install --skip-env-check --skip-admin-creation
+          php artisan key:generate
+          php artisan migrate --force
+
+      - name: Copy Bagisto Connector to Unopim
+        run: |
+          mkdir -p ./unopim/packages/Webkul/Bagisto
+          cp -r ./bagisto-connector/* ./unopim/packages/Webkul/Bagisto/
+
+      - name: Register Bagisto Connector Package
+        run: |
+          cd unopim
+          grep -q 'Webkul\\\\Bagisto' composer.json || \
+          sed -i '/"psr-4": {/a \        "Webkul\\\\Bagisto\\\\": "packages/Webkul/Bagisto/src",' composer.json
+
+          # Register provider
+          grep -q "BagistoServiceProvider" bootstrap/providers.php || \
+          sed -i "/return \[/a \    Webkul\\\\Bagisto\\\\Providers\\\\BagistoServiceProvider::class," bootstrap/providers.php
+          composer dump-autoload
+          php artisan bagisto-package:install
+          php artisan optimize:clear
+
+      - name: Start UnoPim server
+        run: |
+          cd unopim
+          php artisan migrate:fresh --seed
+          php artisan tinker --execute="DB::table('admins')->where('id',1)->update(['email'=>'admin@example.com','password'=>bcrypt('admin123')]);"
+          # The seeded IP-based debug setting renders the debug bar over the page,
+          # and its indicator swallows clicks on controls pinned to the viewport.
+          php artisan tinker --execute="DB::table('core_config')->where('code','like','general.debug.settings.%')->delete();"
+          php artisan optimize:clear
+          php artisan serve --host=0.0.0.0 --port=8000 &
+
+      - name: Wait for UnoPim to start
+        run: |
+          npx wait-on http://localhost:8000
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Playwright dependencies
+        run: |
+          cd unopim/packages/Webkul/Bagisto/tests/e2e
+          npm install
+          npx playwright install --with-deps
+
+      - name: Configure Playwright env
+        run: |
+          cat > unopim/packages/Webkul/Bagisto/tests/e2e/.env <<EOF
+          E2E_ADMIN_EMAIL=admin@example.com
+          E2E_ADMIN_PASSWORD=admin123
+          E2E_SHOPIFY_URL=${{ secrets.E2E_SHOPIFY_URL }}
+          E2E_SHOPIFY_CLIENT_ID=${{ secrets.E2E_SHOPIFY_CLIENT_ID }}
+          E2E_SHOPIFY_CLIENT_SECRET=${{ secrets.E2E_SHOPIFY_CLIENT_SECRET }}
+          EOF
+
+      - name: Run Playwright tests
+        run: |
+          cd unopim/packages/Webkul/Bagisto/tests/e2e
+          npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: unopim/packages/Webkul/Bagisto/tests/e2e/playwright-report

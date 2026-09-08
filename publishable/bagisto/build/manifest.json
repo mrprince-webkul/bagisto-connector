@@ -1,0 +1,11 @@
+{
+  "src/Resources/assets/css/app.css": {
+    "file": "assets/app-01ea8f02.css",
+    "isEntry": true,
+    "src": "src/Resources/assets/css/app.css"
+  },
+  "src/Resources/assets/fonts/unopim-bagisto.woff": {
+    "file": "assets/unopim-bagisto-42cecb37.woff",
+    "src": "src/Resources/assets/fonts/unopim-bagisto.woff"
+  }
+}
