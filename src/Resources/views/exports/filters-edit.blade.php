@@ -1,5 +1,5 @@
 @php
-    $bagistoConnectorFilters = ['credentials', 'channel', 'locale', 'family', 'type', 'code'];
+    $bagistoConnectorFilters = \Webkul\Bagisto\Enums\Export\ProductFilter::connectorFields();
 
     $bagistoExporterConfig = $exporterConfig ?? config('exporters');
 

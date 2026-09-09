@@ -24,6 +24,8 @@ class ExporterTest extends TestCase
 
     private $jobLogger;
 
+    private $productRepository;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -32,7 +34,7 @@ class ExporterTest extends TestCase
         $fileBuffer = Mockery::mock(FlatItemBuffer::class);
         $bagistoMapping = Mockery::mock(BagistoDataMapping::class);
         $attrRepo = Mockery::mock(AttributeRepository::class);
-        $prodRepo = Mockery::mock(ProductRepository::class);
+        $prodRepo = $this->productRepository = Mockery::mock(ProductRepository::class);
         $catRepo = Mockery::mock(CategoryRepository::class);
         $attrOptionRepo = Mockery::mock(AttributeOptionRepository::class);
         $attrMappingRepo = Mockery::mock(AttributeMappingRepository::class);
@@ -312,6 +314,48 @@ class ExporterTest extends TestCase
         $item = $this->configurable([], [$this->leaf('shirt-red', ['color' => 'red'])]);
 
         $this->assertSame('', $this->exporter->getSuperAttributes($item));
+    }
+
+    public function test_associations_keep_only_skus_that_still_exist()
+    {
+        $this->expectSkuLookup(['shirt-red', 'ghost-sku'], ['shirt-red']);
+
+        $this->assertSame('shirt-red', $this->associationsFormat('shirt-red, ghost-sku'));
+    }
+
+    public function test_associations_are_looked_up_once_per_sku()
+    {
+        $this->expectSkuLookup(['shirt-red', 'shirt-blue'], ['shirt-red', 'shirt-blue']);
+
+        $this->assertSame('shirt-red,shirt-blue', $this->associationsFormat('shirt-red,shirt-blue'));
+        $this->assertSame('shirt-blue', $this->associationsFormat('shirt-blue'));
+    }
+
+    public function test_associations_are_null_when_the_product_has_none()
+    {
+        $this->productRepository->shouldReceive('whereIn')->never();
+
+        $this->assertNull($this->associationsFormat(null));
+    }
+
+    private function expectSkuLookup(array $queried, array $found): void
+    {
+        $this->productRepository->shouldReceive('whereIn')
+            ->once()
+            ->with('sku', $queried)
+            ->andReturn(Mockery::mock(['pluck' => collect($found)]));
+    }
+
+    private function associationsFormat(?string $upSells): ?string
+    {
+        $item = $upSells === null
+            ? ['values' => []]
+            : ['values' => ['associations' => ['up_sells' => explode(',', $upSells)]]];
+
+        $method = new \ReflectionMethod($this->exporter, 'getAssociationsFormat');
+        $method->setAccessible(true);
+
+        return $method->invoke($this->exporter, $item, 'up_sells');
     }
 
     private function configurable(array $axisCodes, array $variants): array

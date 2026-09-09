@@ -51,9 +51,6 @@ class Exporter extends AbstractExporter
         parent::__construct($exportBatchRepository, $exportFileBuffer);
     }
 
-    /**
-     * Initializes the data for the export process.
-     */
     public function initialize(): void
     {
         $this->initializeCredential($this->getFilters());
@@ -72,9 +69,6 @@ class Exporter extends AbstractExporter
         return false;
     }
 
-    /**
-     * Start the export process
-     */
     public function exportBatch(JobTrackBatchContract $batch, $filePath): bool
     {
         $this->initialize();
@@ -108,7 +102,7 @@ class Exporter extends AbstractExporter
 
         return $attributeFamilyCodes
             ? $this->source->with(['familyGroups', 'attributeFamilyGroupMappings.customAttributes'])
-                ->whereIn('code', $this->convertCommaSeparatedToArray($attributeFamilyCodes))
+                ->whereIn('code', $this->parseIdentifiers($attributeFamilyCodes))
                 ->get()->getIterator()
             : $this->source->with(['familyGroups', 'attributeFamilyGroupMappings.customAttributes'])
                 ->all()->getIterator();
@@ -195,14 +189,14 @@ class Exporter extends AbstractExporter
         $groupIds = ! empty($item['attribute_groups']) ? array_keys($item['attribute_groups']) : [];
 
         foreach ($response['groups'] as $key => $groups) {
-            if (! $this->getMapping($this->credential['id'], null, $groups['id'], $item['code'].'|'.$groups['code'], null, 'groups') && isset($groupIds[$key])) {
+            if (! $this->getMapping($this->credential['id'], null, $groups['id'], $item['code'].'|'.$groups['code'], null, self::GROUP_ENTITY_TYPE) && isset($groupIds[$key])) {
                 $this->setMapping(
                     $this->credential['id'],
                     str_replace('group_', '', $groupIds[$key]),
                     $groups['id'],
                     $batchId,
                     $item['code'].'|'.$groups['code'],
-                    'groups'
+                    self::GROUP_ENTITY_TYPE
                 );
             }
         }
@@ -265,9 +259,9 @@ class Exporter extends AbstractExporter
         );
 
         foreach ($bagistoGroups as $id => $groupCode) {
-            if (! $this->getMapping($this->credential['id'], null, $id, $item['code'].'|'.$groupCode, null, 'groups')
+            if (! $this->getMapping($this->credential['id'], null, $id, $item['code'].'|'.$groupCode, null, self::GROUP_ENTITY_TYPE)
                 && in_array($groupCode, $unopimGroups)) {
-                $this->setMapping($this->credential['id'], array_search($groupCode, $unopimGroups), $id, $batchId, $item['code'].'|'.$groupCode, 'groups');
+                $this->setMapping($this->credential['id'], array_search($groupCode, $unopimGroups), $id, $batchId, $item['code'].'|'.$groupCode, self::GROUP_ENTITY_TYPE);
                 $groupKey = ! empty(array_search($groupCode, $unopimGroups)) ? 'group_'.array_search($groupCode, $unopimGroups) : 'group_0';
                 if (! empty($item['attribute_groups'][$groupKey])) {
                     $item['attribute_groups'][$id] = $item['attribute_groups'][$groupKey];
@@ -342,7 +336,7 @@ class Exporter extends AbstractExporter
      */
     private function getFormattedGroupKey($familyGroup): string
     {
-        $mapData = $this->getMapping($this->credential['id'], $familyGroup['id'], null, null, null, 'groups');
+        $mapData = $this->getMapping($this->credential['id'], $familyGroup['id'], null, null, null, self::GROUP_ENTITY_TYPE);
 
         return $mapData ? $mapData->external_id : 'group_'.$familyGroup['id'];
     }

@@ -8,16 +8,21 @@ use Illuminate\Database\Eloquent\Model;
 trait Mapping
 {
     /**
-     * Initializes Mapping for the export process.
+     * Family groups are keyed by family|group code rather than by record, so an
+     * existing row is never reused for them and the lookup is skipped outright.
      */
+    protected const GROUP_ENTITY_TYPE = 'groups';
+
     protected function setMapping(string|int $credentialId, string|int|null $relatedId, string|int|null $externalId, string|int $batchId, ?string $code = null, $entityType = self::ENTITY_TYPE): ?Model
     {
         if ($relatedId === null || $externalId === null) {
             return null;
         }
 
-        $mapping = $this->getMapping($credentialId, $relatedId, null, $code, null, $entityType);
-        $mapping = ($entityType == 'groups') ? null : $mapping;
+        $mapping = $entityType === self::GROUP_ENTITY_TYPE
+            ? null
+            : $this->getMapping($credentialId, $relatedId, null, $code, null, $entityType);
+
         if (! $mapping) {
             $response = $this->bagistoDataMappingRepository->create([
                 'related_id'      => $relatedId,
@@ -38,9 +43,6 @@ trait Mapping
         return $response;
     }
 
-    /**
-     * Dynamically get the mapping based on available parameters.
-     */
     protected function getMapping(string|int|null $credentialId = null, string|int|null $relatedId = null, string|int|null $externalId = null, ?string $code = null, string|int|null $batchId = null, $entityType = self::ENTITY_TYPE, $type = 'first'): Collection|Model|null
     {
         $query = $this->bagistoDataMappingRepository->where('entity_type', $entityType);
@@ -72,13 +74,13 @@ trait Mapping
         return $query->first();
     }
 
-    protected function convertCommaSeparatedToArray($input): array
+    protected function parseIdentifiers(mixed $input): array
     {
-        $input = trim($input);
-        $array = explode(',', $input);
-        $array = array_map('trim', $array);
-        $array = array_filter($array, fn ($value) => ! empty($value));
+        $values = is_array($input) ? $input : preg_split('/[\s,]+/', (string) $input);
 
-        return $array;
+        return array_values(array_filter(array_map(
+            fn ($value): string => trim((string) $value),
+            $values ?: []
+        )));
     }
 }

@@ -1,3 +1,15 @@
+# Unreleased
+
+## Added
+- Bagisto product exports carry the core product filters: attribute family, completeness, time condition, categories and attribute conditions.
+- `With Associations` output option controls whether `up_sell_skus`, `cross_sell_skus` and `related_skus` are sent to Bagisto. New profiles keep it on, matching how the connector behaved before; profiles saved earlier need it ticked once.
+- Server-side validation of the product export profile filters.
+
+## Changed
+- `Filter By SKU` on the product export and `Filter By Code` on the category, attribute and attribute family exports are tag inputs, accepting identifiers separated by commas, spaces or new lines, matching the core `Identifiers` field. Values saved from the previous textarea are read back unchanged.
+- The connector `Family` filter is replaced by the core `Attribute Families` filter in the Data Filter card. Saved profiles need the families re-selected once.
+- Association SKUs are resolved in one query per batch instead of one query per SKU, and export batches store only the columns they use.
+
 # 1.1.0 - (27-08-2026)
 
 ## Changed

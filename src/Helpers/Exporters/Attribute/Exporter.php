@@ -32,31 +32,12 @@ class Exporter extends AbstractExporter
 
     public const GET_ENTITY_TYPE = 'getAttribute';
 
-    /*
-     * For exporting file
-     */
     protected bool $exportsFile = false;
 
-    /**
-     * Current crenetial.
-     *
-     * @var array
-     */
-    protected $credential = [];
+    protected array $credential = [];
 
-    /**
-     * @var array
-     */
-    protected $attributes = [];
+    protected array $additionalInfoValue = [];
 
-    /**
-     * @var array
-     */
-    protected $additionalInfoValue = [];
-
-    /**
-     * Create a new instance of the exporter.
-     */
     public function __construct(
         protected JobTrackBatchRepository $exportBatchRepository,
         protected FileExportFileBuffer $exportFileBuffer,
@@ -68,9 +49,6 @@ class Exporter extends AbstractExporter
         parent::__construct($exportBatchRepository, $exportFileBuffer);
     }
 
-    /**
-     * Initializes the data for the export process.
-     */
     public function initialize(): void
     {
         $this->initializeCredential($this->getFilters());
@@ -89,9 +67,6 @@ class Exporter extends AbstractExporter
         return false;
     }
 
-    /**
-     * Start the export process
-     */
     public function exportBatch(JobTrackBatchContract $batch, $filePath): bool
     {
         $this->initialize();
@@ -138,7 +113,7 @@ class Exporter extends AbstractExporter
 
         if ($attributeCodes) {
             return $this->source->with('options')
-                ->whereIn('code', $this->convertCommaSeparatedToArray($attributeCodes))
+                ->whereIn('code', $this->parseIdentifiers($attributeCodes))
                 ->get()->getIterator();
         }
 

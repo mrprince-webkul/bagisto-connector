@@ -2,6 +2,7 @@
 
 namespace Webkul\Bagisto\Helpers\Exporters\Category;
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Webkul\Bagisto\Enums\Export\CacheType;
@@ -30,46 +31,29 @@ class Exporter extends BaseExporter
 
     public const ENTITY_TYPE = 'category';
 
-    /*
-     * For exporting file
-     */
     protected bool $exportsFile = false;
 
+    protected array $credential = [];
+
+    protected array $mappingFields = [];
+
+    protected array $jobFilters = [];
+
     /**
-     * Current crenetial.
+     * Active UnoPim category fields, as a Collection once loaded from the
+     * repository and an array when restored from cache.
      *
-     * @var array
-     */
-    protected $credential = [];
-
-    /**
-     * @var array
-     */
-    protected $mappingFields = [];
-
-    /**
-     * @var array
-     */
-    protected $jobFilters = [];
-
-    /**
-     * @var array
+     * @var Collection|array
      */
     protected $categoryFields = [];
 
-    /**
-     * @var array
-     */
-    protected $storeSlug = [];
+    protected array $storeSlug = [];
 
     /**
      * Memoised fallback list of Bagisto filterable attribute IDs.
      */
     protected ?array $defaultFilterableAttributeIds = null;
 
-    /**
-     * Create a new instance of the exporter.
-     */
     public function __construct(
         protected JobTrackBatchRepository $exportBatchRepository,
         protected FileExportFileBuffer $exportFileBuffer,
@@ -81,9 +65,6 @@ class Exporter extends BaseExporter
         parent::__construct($exportBatchRepository, $exportFileBuffer, $categoryFieldRepository);
     }
 
-    /**
-     * Initializes the data for the export process.
-     */
     public function initialize(): void
     {
         $this->initializeCredential($this->getFilters());
@@ -184,9 +165,6 @@ class Exporter extends BaseExporter
         }
     }
 
-    /**
-     * Start the export process
-     */
     public function exportBatch(JobTrackBatchContract $batch, $filePath): bool
     {
         $this->initialize();
@@ -211,7 +189,7 @@ class Exporter extends BaseExporter
         $filters = $this->getFilters();
         if (! empty($filters['code'])) {
 
-            return $this->source->whereIn('code', $this->convertCommaSeparatedToArray($filters['code']))->orderBy('parent_id')->with('parent_category')->get()?->getIterator();
+            return $this->source->whereIn('code', $this->parseIdentifiers($filters['code']))->orderBy('parent_id')->with('parent_category')->get()?->getIterator();
         }
 
         return $this->source->orderBy('parent_id')->with('parent_category')->all()?->getIterator();

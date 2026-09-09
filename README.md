@@ -1,6 +1,6 @@
 # UnoPim-Bagisto Connector
 
-The **UnoPim-Bagisto Connector** enables seamless integration between **UnoPim 2.0** and **Bagisto**, allowing you to synchronize data effortlessly.
+The **UnoPim-Bagisto Connector** enables seamless integration between **UnoPim 3.0** and **Bagisto**, allowing you to synchronize data effortlessly.
 
 ## ✨ Features
 
@@ -14,15 +14,15 @@ The **UnoPim-Bagisto Connector** enables seamless integration between **UnoPim 2
 
 ## ✅ Requirements
 
-- **UnoPim**: `2.1.x`
-- **PHP**: `8.3+`
+- **UnoPim**: `3.0.x`
+- **PHP**: `8.4.1+`
 - **Bagisto** with REST API installed (`2.x.x`)
 
 ---
 
 ## 🛠️ Installation with Composer (recommended)
 
-UnoPim 2.0 ships with Laravel 12-style auto-discovery, so the service provider is registered automatically through `composer.json` (`extra.laravel.providers`). You only need to require the package and run the installer.
+UnoPim 3.0 ships with Laravel 13-style auto-discovery, so the service provider is registered automatically through `composer.json` (`extra.laravel.providers`). You only need to require the package and run the installer.
 
 1. **Require the package**
 
@@ -42,7 +42,7 @@ UnoPim 2.0 ships with Laravel 12-style auto-discovery, so the service provider i
 
 3. **(Optional) Verify the provider is registered**
 
-    Auto-discovery should add the provider for you. If you want to confirm, check that `bootstrap/providers.php` resolves the package via `composer dump-autoload` — there is **no** entry to add by hand in UnoPim 2.0.
+    Auto-discovery should add the provider for you. If you want to confirm, check that `bootstrap/providers.php` resolves the package via `composer dump-autoload` — there is **no** entry to add by hand in UnoPim 3.0.x.
 
 ---
 
@@ -52,7 +52,7 @@ Use this path only if you need to load the package from the local `packages/` di
 
 1. **Place the package**
 
-    Download and extract the connector. Rename the folder to `Bagisto` and move it into `packages/Webkul/` of your UnoPim 2.0 project, so the final path is:
+    Download and extract the connector. Rename the folder to `Bagisto` and move it into `packages/Webkul/` of your UnoPim 3.0 project, so the final path is:
 
     ```
     packages/Webkul/Bagisto
@@ -72,16 +72,18 @@ Use this path only if you need to load the package from the local `packages/` di
 
 3. **Register the service provider**
 
-    > UnoPim 2.0 follows the Laravel 12 bootstrap layout — providers live in `bootstrap/providers.php`, **not** in `config/app.php`.
+    > UnoPim 3.0 follows the Laravel 13 bootstrap layout — providers live in `bootstrap/providers.php`, **not** in `config/app.php`.
 
     Open `bootstrap/providers.php` and add the provider to the returned array:
 
     ```php
     <?php
 
+    use Webkul\Bagisto\Providers\BagistoServiceProvider;
+
     return [
         // ...other providers,
-        Webkul\Bagisto\Providers\BagistoServiceProvider::class,
+        BagistoServiceProvider::class,
     ];
     ```
 
