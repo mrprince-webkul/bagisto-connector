@@ -1,4 +1,4 @@
-# Unreleased
+# 1.2.0 - (09-09-2026)
 
 ## Added
 - Bagisto product exports carry the core product filters: attribute family, completeness, time condition, categories and attribute conditions.
